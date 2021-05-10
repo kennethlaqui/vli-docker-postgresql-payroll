@@ -1,0 +1,92 @@
+version: '3'
+
+services:
+  postgres:
+    image: postgres:12
+    container_name: postgres-payroll
+    restart: always
+    env_file:
+      - .env
+    command: postgres -c 'config_file=/etc/postgresql/postgresql.conf'
+    volumes:
+      - ./globals.sql:/docker-entrypoint-initdb.d/1-globals.sql
+      - ./schema.sql:/docker-entrypoint-initdb.d/2-schema.sql
+      - ./data.sql:/docker-entrypoint-initdb.d/3-data.sql
+      - ./pgdata:/var/lib/postgresql/data/
+      - ./postgresql.conf:/etc/postgresql/postgresql.conf
+    ports:
+      - 5450:5432
+    networks:
+      - payroll-network
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin4-payroll
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: postgres@postgres.com
+      PGADMIN_DEFAULT_PASSWORD: postgres
+      PGADMIN_LISTEN_PORT: 5490
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    ports:
+      - 5490:5490
+    networks:
+      - payroll-network
+
+  redis:
+    image: redis
+    container_name: redis-payroll
+    hostname: redis-payroll
+    restart: always
+    volumes:
+      - ./redis/data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - payroll-network
+      
+  redis-commander:
+    container_name: redis-commander-payroll
+    hostname: redis-commander
+    image: rediscommander/redis-commander:latest
+    restart: always
+    environment:
+      - REDIS_HOSTS=host.docker.internal:redis-payroll:6379
+    ports:
+      - "8081:8081"
+    networks:
+      - payroll-network
+
+  pgbackups:
+    image: prodrigestivill/postgres-backup-local
+    container_name: pgbackup-payroll
+    restart: always
+    user: postgres:postgres
+    volumes:
+        - ./pgbackup:/backups
+    links:
+        - postgres
+    depends_on:
+        - postgres
+    environment:
+        - POSTGRES_HOST=host.docker.internal
+        - POSTGRES_PORT=5450
+        - POSTGRES_DB=payroll
+        - POSTGRES_USER=db_admin
+        - POSTGRES_PASSWORD=db_admin
+        - POSTGRES_EXTRA_OPTS=-Z9 --blobs
+        - SCHEDULE=@daily
+        - BACKUP_KEEP_DAYS=7
+        - BACKUP_KEEP_WEEKS=4
+        - BACKUP_KEEP_MONTHS=6
+        - HEALTHCHECK_PORT=8080
+
+volumes:
+  pgdata:
+  db-data:
+  pgadmin-data:
+    
+networks:
+  payroll-network:
+    driver: bridge
